@@ -9,7 +9,7 @@ El sistema utiliza un corpus de películas combinando catálogos de Netflix, Ama
 
 El proyecto está diseñado de forma modular para separar el procesamiento de datos, la lógica del motor de búsqueda y el pipeline de evaluación académica (generación de *qrels* y métricas).
 
-- `01_data_processing.ipynb`: Se encarga de cargar los datasets, eliminar películas duplicadas (conservando la información de en qué plataformas están disponibles), generar las narrativas en lenguaje natural y calcular los embeddings vectoriales utilizando el modelo `paraphrase-multilingual-MiniLM-L12-v2`. Para evitar recálculos costosos, guarda los resultados en `movies_with_embeddings.pkl`.
+- `01_data_processing.ipynb`: (Opcional) Se encarga de cargar los datasets originales, eliminar películas duplicadas, generar las narrativas y calcular los embeddings vectoriales. Para evitar que tengas que recalcular esto en tu máquina, los resultados ya se encuentran exportados en el repositorio dentro del archivo `movies_with_embeddings.pkl`.
 - `search_engine.py`: Módulo central de Python que contiene la lógica de los tres motores de búsqueda:
   - `BM25Searcher`: Búsqueda *sparse* utilizando la librería `rank_bm25` y tokenización con `nltk`.
   - `DenseSearcher`: Búsqueda *dense* mediante similitud de coseno utilizando los embeddings generados.
@@ -27,8 +27,8 @@ El proyecto está diseñado de forma modular para separar el procesamiento de da
    pip install -r requirements.txt
    ```
 
-2. **Procesar Datos y Embeddings:**
-   Abre y ejecuta el notebook `01_data_processing.ipynb` de principio a fin. Este paso tomará un tiempo la primera vez ya que debe descargar el modelo de *SentenceTransformers* y calcular los vectores para las ~20,000 películas.
+2. **Procesar Datos y Embeddings (OPCIONAL):**
+   El archivo `movies_with_embeddings.pkl` (que contiene los datos limpios y los vectores precalculados) ya se encuentra incluido en el repositorio. Por lo tanto, **no es necesario** que ejecutes el notebook `01_data_processing.ipynb` a menos que modifiques los CSVs originales o desees reconstruir los embeddings desde cero. ¡Puedes saltar directamente al paso 3!
 
 3. **Generar el Pool de Evaluación:**
    Abre `02_pooling_generation.ipynb`. Puedes modificar la lista `TEST_QUERIES` con las consultas que desees probar. Ejecuta el notebook para generar el archivo `qrels_to_grade.csv`.
