@@ -27,21 +27,43 @@ class BM25Searcher:
     def _tokenize(self, text):
         return word_tokenize(text.lower())
 
-    def search(self, query, top_k=5):
+    def search(self, query, top_k=5, use_exact_match=False):
+        exact_titles = set()
+        results = []
+        
+        if use_exact_match:
+            query_lower = query.lower()
+            exact_indices = np.where(self.df['title'].str.lower().str.contains(query_lower, regex=False))[0]
+            
+            for idx in exact_indices:
+                title = self.df.iloc[idx]['title']
+                exact_titles.add(title)
+                results.append({
+                    'title': title,
+                    'score': 999.0,
+                    'rank': len(results) + 1,
+                    'method': 'bm25'
+                })
+                if len(results) >= top_k:
+                    return results
+
         tokenized_query = self._tokenize(query)
         scores = self.bm25.get_scores(tokenized_query)
         
-        # Get top k indices
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        top_indices = np.argsort(scores)[::-1]
         
-        results = []
-        for rank, idx in enumerate(top_indices):
-            results.append({
-                'title': self.df.iloc[idx]['title'],
-                'score': scores[idx],
-                'rank': rank + 1,
-                'method': 'bm25'
-            })
+        for idx in top_indices:
+            title = self.df.iloc[idx]['title']
+            if title not in exact_titles:
+                results.append({
+                    'title': title,
+                    'score': float(scores[idx]),
+                    'rank': len(results) + 1,
+                    'method': 'bm25'
+                })
+            if len(results) >= top_k:
+                break
+                
         return results
 
 
@@ -56,24 +78,46 @@ class DenseSearcher:
         self.doc_embeddings = np.stack(self.df[self.embedding_col].values)
         print("Dense embeddings loaded successfully.")
 
-    def search(self, query, top_k=5):
+    def search(self, query, top_k=5, use_exact_match=False):
+        exact_titles = set()
+        results = []
+        
+        if use_exact_match:
+            query_lower = query.lower()
+            exact_indices = np.where(self.df['title'].str.lower().str.contains(query_lower, regex=False))[0]
+            
+            for idx in exact_indices:
+                title = self.df.iloc[idx]['title']
+                exact_titles.add(title)
+                results.append({
+                    'title': title,
+                    'score': 999.0,
+                    'rank': len(results) + 1,
+                    'method': 'dense'
+                })
+                if len(results) >= top_k:
+                    return results
+
         # Embed the query
         query_embedding = self.model.encode([query])
         
         # Calculate cosine similarity
         similarities = cosine_similarity(query_embedding, self.doc_embeddings)[0]
         
-        # Get top k indices
-        top_indices = np.argsort(similarities)[::-1][:top_k]
+        top_indices = np.argsort(similarities)[::-1]
         
-        results = []
-        for rank, idx in enumerate(top_indices):
-            results.append({
-                'title': self.df.iloc[idx]['title'],
-                'score': similarities[idx],
-                'rank': rank + 1,
-                'method': 'dense'
-            })
+        for idx in top_indices:
+            title = self.df.iloc[idx]['title']
+            if title not in exact_titles:
+                results.append({
+                    'title': title,
+                    'score': float(similarities[idx]),
+                    'rank': len(results) + 1,
+                    'method': 'dense'
+                })
+            if len(results) >= top_k:
+                break
+                
         return results
 
 
@@ -82,38 +126,61 @@ class HybridSearcher:
         self.bm25_searcher = bm25_searcher
         self.dense_searcher = dense_searcher
 
-    def search(self, query, top_k=5, rrf_k=60):
+    def search(self, query, top_k=5, rrf_k=60, use_exact_match=False):
+        exact_titles = set()
+        results = []
+        
+        if use_exact_match:
+            query_lower = query.lower()
+            df = self.bm25_searcher.df
+            exact_indices = np.where(df['title'].str.lower().str.contains(query_lower, regex=False))[0]
+            
+            for idx in exact_indices:
+                title = df.iloc[idx]['title']
+                exact_titles.add(title)
+                results.append({
+                    'title': title,
+                    'score': 999.0,
+                    'rank': len(results) + 1,
+                    'method': 'hybrid'
+                })
+                if len(results) >= top_k:
+                    return results
+
         # To do a good RRF fusion, we need to retrieve more items initially
         initial_k = max(top_k * 2, 50)
         
-        bm25_results = self.bm25_searcher.search(query, top_k=initial_k)
-        dense_results = self.dense_searcher.search(query, top_k=initial_k)
+        bm25_results = self.bm25_searcher.search(query, top_k=initial_k, use_exact_match=False)
+        dense_results = self.dense_searcher.search(query, top_k=initial_k, use_exact_match=False)
         
         # RRF Scoring
         rrf_scores = {}
         
         for res in bm25_results:
             title = res['title']
-            if title not in rrf_scores:
-                rrf_scores[title] = 0.0
-            rrf_scores[title] += 1.0 / (rrf_k + res['rank'])
+            if title not in exact_titles:
+                if title not in rrf_scores:
+                    rrf_scores[title] = 0.0
+                rrf_scores[title] += 1.0 / (rrf_k + res['rank'])
             
         for res in dense_results:
             title = res['title']
-            if title not in rrf_scores:
-                rrf_scores[title] = 0.0
-            rrf_scores[title] += 1.0 / (rrf_k + res['rank'])
+            if title not in exact_titles:
+                if title not in rrf_scores:
+                    rrf_scores[title] = 0.0
+                rrf_scores[title] += 1.0 / (rrf_k + res['rank'])
             
         # Sort by RRF score
-        sorted_results = sorted(rrf_scores.items(), key=lambda item: item[1], reverse=True)[:top_k]
+        sorted_results = sorted(rrf_scores.items(), key=lambda item: item[1], reverse=True)
         
-        results = []
-        for rank, (title, score) in enumerate(sorted_results):
+        for title, score in sorted_results:
             results.append({
                 'title': title,
                 'score': score,
-                'rank': rank + 1,
+                'rank': len(results) + 1,
                 'method': 'hybrid'
             })
+            if len(results) >= top_k:
+                break
             
         return results
